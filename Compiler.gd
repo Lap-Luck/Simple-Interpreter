@@ -128,7 +128,7 @@ class Stack:
 
 class Parser:
 	class PreParser:
-		const DEBUG=false
+		const DEBUG=true
 		enum {
 				E_PROGRAM,
 				E_TYPEDEF,# use ot define type(with ;)
@@ -414,7 +414,7 @@ class Parser:
 			for t_id in range(t[1],t[2]):
 				if  tokens[t_id].type==IDENTIFIER:
 					res+=" LOAD "+tokens[t_id].text
-					Program.append(["LOAD",read(t,0)])
+					Program.append(["LOAD",tokens[t_id].text])
 				else:
 					if tokens[t_id].type!=OPERATOR:
 						res+=" PUT "+tokens[t_id].text
