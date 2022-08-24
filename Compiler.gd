@@ -9,6 +9,8 @@ class Tokenizer:
 	class Token:
 		var text:=""
 		var type:=WHITESPACE
+		var begin_offset:int=0
+		var end_offset:int=0
 		func _to_string():
 			if type in [NONE]:
 				return "END"
@@ -41,6 +43,7 @@ class Tokenizer:
 		
 	func tokenize(s:String):
 		newToken.type=NONE
+		var offset=0
 		for ch in s:
 			match [currentToken.type,what(ord(ch))]:
 				#inteager behavior (see also default behavior)
@@ -105,14 +108,18 @@ class Tokenizer:
 					if currentToken.type==IDENTIFIER:
 						if currentToken.text in KEYWORDS:
 							currentToken.type=KEYWORD
+					currentToken.end_offset=offset+1
 					tokens.append(currentToken)
 				currentToken=newToken
+				currentToken.begin_offset=offset
 				newToken=Token.new()
 				newToken.type=NONE
+			offset+=1
 		if currentToken.type!=WHITESPACE:
 			if currentToken.type==IDENTIFIER:
 				if currentToken.text in KEYWORDS:
 					currentToken.type=KEYWORD
+			currentToken.end_offset=offset+1
 			tokens.append(currentToken)
 		tokens.append(newToken)# token None on the end
 		return tokens
@@ -337,6 +344,11 @@ class Parser:
 		if g[1]+id>=g[2]:
 			assert(false)
 		return tokens[g[1]+id].text
+		
+	func read_t(g,id):
+		if g[1]+id>=g[2]:
+			assert(false)
+		return tokens[g[1]+id]
 	
 	enum {VOID,INT32,FLOAT32,FLOAT64}
 	
@@ -376,21 +388,21 @@ class Parser:
 			"(":[30,0],
 			}
 		var data=[]
-		func put(op):
+		func put(op,metadata=[]):
 			if not op in presidence.keys():
 				assert(false)
 			if data.empty():
-				data.append(op)
+				data.append([op,metadata])
 				return []
-			if presidence[data.back()][1]<presidence[op][0]:
-				data.append(op)
+			if presidence[data.back()[0]][1]<presidence[op][0]:
+				data.append([op,metadata])
 				return []
-			if presidence[data.back()][1]==presidence[op][0]:
+			if presidence[data.back()[0]][1]==presidence[op][0]:
 				var op_in=data.pop_back()
-				return [op_in,op]
-			if presidence[data.back()][1]>presidence[op][0]:
+				return [op_in,[op,metadata]]
+			if presidence[data.back()[0]][1]>presidence[op][0]:
 				var op_in=data.pop_back()
-				var sub_res=self.put(op)
+				var sub_res=self.put(op,metadata)
 				var res=[op_in]
 				for s in sub_res:
 					res.append(s)
@@ -402,10 +414,10 @@ class Parser:
 	func parse_value(t):
 		if t[1]+1==t[2]:
 			if tokens[t[1]].type==IDENTIFIER:
-				Program.append(["LOAD",read(t,0)])
+				Program.append(["LOAD",[read(t,0)],read_t(t,0)])
 				return "LOAD "+read(t,0)
 			else:
-				Program.append(["PUT",read(t,0)])
+				Program.append(["PUT",[read(t,0)],read_t(t,0)])
 				return "PUT "+read(t,0)
 		else:
 			var res=""
@@ -414,24 +426,25 @@ class Parser:
 			for t_id in range(t[1],t[2]):
 				if  tokens[t_id].type==IDENTIFIER:
 					res+=" LOAD "+tokens[t_id].text
-					Program.append(["LOAD",tokens[t_id].text])
+					Program.append(["LOAD",[tokens[t_id].text],tokens[t_id]])
 				else:
 					if tokens[t_id].type!=OPERATOR:
 						res+=" PUT "+tokens[t_id].text
-						Program.append(["PUT",tokens[t_id].text])
+						Program.append(["PUT",[tokens[t_id].text],tokens[t_id]])
 					else:
 						#TODO operator
-						var ops=operators_stack.put(tokens[t_id].text)
-						for op in ops:
+						var ops=operators_stack.put(tokens[t_id].text,tokens[t_id])
+						for op_d in ops:
+							var op=op_d[0]
 							if not op in["(",")"]:
 								res+=" SYSCALL '"+op+"'"
-								Program.append(["SYSCALL",op])
+								Program.append(["SYSCALL",[op],op_d[1]])
 			while true:
 				var op=operators_stack.pop()
 				if op.empty(): break
-				if not op[0] in["(",")"]:
-					res+=" SYSCALL '"+op[0]+"'"
-					Program.append(["SYSCALL",op[0]])
+				if not op[0][0] in["(",")"]:
+					res+=" SYSCALL '"+op[0][0]+"'"
+					Program.append(["SYSCALL",[op[0][0]],op[0][1]])
 			if not error:
 				return res
 			else: 
@@ -439,45 +452,45 @@ class Parser:
 	
 	func default_value(t):
 		if t==INT32:
-			Program.append(["PUT","0"])
+			Program.append(["PUT",["0"],null])
 			return "PUT "+"0"
 			
 		if t==FLOAT32:
-			Program.append(["PUT","0.0"])
+			Program.append(["PUT",["0.0"],null])
 			return "PUT "+"0.0"
 	
 	func parse_statment(s):
 		var res=[]
 		if read(s,0) in known_types:
-			Program.append(["VAR",read(s,1),known_types[read(s,0)][0]])
+			Program.append(["VAR",[read(s,1),known_types[read(s,0)][0]],read_t(s,0)])
 			res.append("VAR "+read(s,1)+":"+known_types[read(s,0)][0]+"\n")
 			if read(s,2)=="=":
 				res.append(parse_value([-1,s[1]+3,s[2]-1])+" STORE "+read(s,1)+"\n")
-				Program.append(["STORE",read(s,1)])
+				Program.append(["STORE",[read(s,1)],read_t(s,2)])
 			else:
 				if read(s,2)==";":
 					res.append(default_value(known_types[read(s,0)][1])+" STORE "+read(s,1)+"\n")
-					Program.append(["STORE",read(s,1)])
+					Program.append(["STORE",[read(s,1)],read_t(s,2)])
 		else:
 			if read(s,1)=="=":
 				res.append(parse_value([-1,s[1]+2,s[2]-1])+" STORE "+read(s,0)+"\n")
-				Program.append(["STORE",read(s,0)])
+				Program.append(["STORE",[read(s,0)],read_t(s,0)])
 			else:
 				if read(s,0)=="return":
 					res.append(parse_value([-1,s[1]+1,s[2]-1])+" RET"+"\n")
 					#TODO arbitrary number of end
-					Program.append(["END"])
-					Program.append(["END"])	
-					Program.append(["RET"])
+					Program.append(["END",[],read_t(s,0)])
+					Program.append(["END",[],read_t(s,0)])	
+					Program.append(["RET",[],read_t(s,0)])
 				else:
 					if read(s,1)=="(":
 						if read(s,s[2]-s[1]-1-1)==")":
 							if 2<s[2]-s[1]-1-1:
 								res.append(parse_value([-1,s[1]+2,s[1]+(s[2]-s[1]-1-1)])+" CALL "+read(s,0)+"\n")
-								Program.append(["CALL",read(s,0)])
+								Program.append(["CALL",[read(s,0)],read_t(s,0)])
 							if 2==s[2]-s[1]-1-1:
 								res.append("PUT void CALL "+read(s,0))
-								Program.append(["CALL",read(s,0)])
+								Program.append(["CALL",[read(s,0)],read_t(s,0)])
 							if 2>s[2]-s[1]-1-1:
 								assert(false)
 						else:
@@ -501,12 +514,12 @@ class Parser:
 				else:
 					res+="0"# false on empty if????????????
 				res+=" JZ "+"END_BLOCK"+String(jump_id)+"\n"
-				Program.append(["JZ","END_BLOCK"+String(jump_id)])
+				Program.append(["JZ",["END_BLOCK"+String(jump_id)],read_t(s,0)])
 			else:
 				res="?"
 		else:
 			res="?"
-		return [res,"Label: END_BLOCK"+String(jump_id)+"\n",["LABEL","END_BLOCK"+String(jump_id)]]
+		return [res,"Label: END_BLOCK"+String(jump_id)+"\n",["LABEL",["END_BLOCK"+String(jump_id)],read_t(s,s[2]-s[1]-1)]]
 	
 	var statments_ending=[]
 	
@@ -515,9 +528,9 @@ class Parser:
 		
 		#TODO result assembly in Program
 		
-		Program.append(["CALL","main"])
-		Program.append(["PUT","0"])
-		Program.append(["JZ","END"])
+		Program.append(["CALL",["main"],null])
+		Program.append(["PUT",["0"],null])
+		Program.append(["JZ",["END"],null])
 		
 		
 		
@@ -544,17 +557,17 @@ class Parser:
 			defined_funcs.append(read(f,1))
 		info+="<FUNCS>\n"
 		for f in funcs:
-			Program.append(["LABEL",read(f,1)])
-			Program.append(["BEGIN"])
+			Program.append(["LABEL",[read(f,1)],read_t(f,1)])
+			Program.append(["BEGIN",[],read_t(f,2)])
 			
 			info+="\t<"+read(f,1)+">\n"#tokens[f[1]+1].text
 			var args=query_in_tree_groups(raf_tree_grups,PreParser.E_ARG,[f[1],f[2]])
 			for arg in args:
-				Program.append(["VAR",read(arg,1),known_types[read(arg,0)][0]])
+				Program.append(["VAR",[read(arg,1),known_types[read(arg,0)][0]],read_t(arg,1)])
 				#TODO thout about arguments order
-				Program.append(["STORE",read(arg,1)])
+				Program.append(["STORE",[read(arg,1)],read_t(arg,1)])
 				info+="\t\t"+"ARG "+read(arg,1)+":"+known_types[read(arg,0)][0]+"\n"
-			Program.append(["BEGIN"])
+			Program.append(["BEGIN",[],read_t(f,1)])
 			info+="\t\t"+"RET "+known_types[read(f,0)][0]+"\n"
 			var statements=query_in_tree_groups(raf_tree_grups,PreParser.E_STAT,[f[1],f[2]])
 			info+="\t\tBEGIN\n"
@@ -583,7 +596,7 @@ class Parser:
 
 		info+="<\\FUNCS>\n\n"
 		
-		Program.append(["LABEL","END"])
+		Program.append(["LABEL",["END"],null])
 		if false:
 			for g in raf_tree_grups:
 				print("\t",group_to_String(g))

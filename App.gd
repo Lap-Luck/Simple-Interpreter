@@ -44,9 +44,9 @@ class Interpreter:
 				BEGIN,END,RET:
 					res.append([instruction])
 				LOAD,PUT,STORE,LABEL,CALL,JZ,SYSCALL:
-					res.append([instruction,text_instruction[1]])
+					res.append([instruction,text_instruction[1][0]])
 				VAR:
-					res.append([instruction,text_instruction[1],text_instruction[2]])
+					res.append([instruction,text_instruction[1][0],text_instruction[1][1]])
 				_:
 					print("ERROR, not in assembly:",text_instruction)
 					assert(false)
@@ -194,7 +194,8 @@ func show_asm(text_bytecode,line):
 	var id=0
 	for text_instruction in text_bytecode:
 		res+="[color=red]"if id==line else ""
-		for t in text_instruction:
+		res+=text_instruction[0]+" "
+		for t in text_instruction[1]:
 			res+=t+" "
 		res+="\n"
 		res+="[/color]"if id==line else ""
@@ -207,8 +208,11 @@ var currentLine=0
 var runtime
 var instruction:Array
 
+var source=""
+
 func _ready():
 	text_bytecode=$Compiler.compile($Source.text)
+	source=$Source.text
 	print("code size=",text_bytecode.size())
 	
 	show_asm(text_bytecode,0)
@@ -218,7 +222,18 @@ func _ready():
 	runtime.load_program(text_bytecode)
 	print("code size=",runtime.program.size())
 	
+func show_program(from, to):
+	$Source.text=""
+	$Source.bbcode_enabled=true
+	var res=""
+	for i in range(source.length()):
 
+		if i==from:
+			res+="[color=red]"
+		if i==to:
+			res+="[/color]"
+		res+=source[i]
+	$Source.bbcode_text=res
 
 
 
@@ -230,4 +245,7 @@ func _on_RunButton_pressed():
 	$"Display/RichTextLabel3".text=runtime.display
 	currentLine=runtime.ip
 	show_asm(text_bytecode,currentLine)
-
+	if runtime.ip<text_bytecode.size():
+		var token=text_bytecode[runtime.ip][2]
+		if token!=null:
+			show_program(token.begin_offset,token.end_offset)
