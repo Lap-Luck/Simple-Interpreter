@@ -201,6 +201,7 @@ func show_asm(text_bytecode,line):
 		id+=1
 	$result.bbcode_enabled=true
 	$result.bbcode_text=res
+	$result.scroll_to_line(line)
 
 var text_bytecode:Array
 var currentLine=0
