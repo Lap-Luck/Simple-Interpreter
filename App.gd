@@ -44,9 +44,9 @@ class Interpreter:
 				BEGIN,END,RET:
 					res.append([instruction])
 				LOAD,PUT,STORE,LABEL,CALL,JZ,SYSCALL:
-					res.append([instruction,text_instruction[1]])
+					res.append([instruction,text_instruction[1][0]])
 				VAR:
-					res.append([instruction,text_instruction[1],text_instruction[2]])
+					res.append([instruction,text_instruction[1][0],text_instruction[1][1]])
 				_:
 					print("ERROR, not in assembly:",text_instruction)
 					assert(false)
@@ -58,6 +58,7 @@ class Interpreter:
 	var variableStack:Array=[]
 	var valueStack:Array=[]
 	var returnStack:Array=[]
+	var ERRORS=[]
 	
 	func execute_one_instruction():
 		if ended:
@@ -71,7 +72,7 @@ class Interpreter:
 		print("exe:",ins," at ",ip)
 		match ins[0]:
 			VAR:
-				variableStack.append([ins[1],null])
+				variableStack.append([ins[1],null,ins[2]])
 			BEGIN:
 				variableStack.append([null,"STACK_SEPARATOR"])
 			END:
@@ -104,6 +105,9 @@ class Interpreter:
 						print("ERROR: No varible named '",ins[1],"'")
 						assert(false)
 				variableStack[id][1]=valueStack.pop_back()
+				if not is_allowed_value(variableStack[id]):
+					ERRORS.append("Can not store \""+variableStack[id][1].replace('\n',"\\n")+"\" in int")
+					ended=true
 			LABEL:
 				pass
 			CALL:
@@ -176,9 +180,9 @@ class Interpreter:
 		for v in variableStack:
 			if not v[0]==null:
 				if  not v[1]==null:
-					res+=v[0]+"="+v[1]+"\n"
+					res+=v[0]+":"+v[2]+"="+v[1]+"\n"
 				else:
-					res+=v[0]+"=UNDEFINED\n"				
+					res+=v[0]+":"+v[2]+"=UNDEFINED\n"				
 			else:
 				res+="________________\n"
 		return res
@@ -189,12 +193,20 @@ class Interpreter:
 			res+=v+"\n"
 		return res
 		
+	func is_allowed_value(assign):
+		var res=true
+		if assign[2]=="Integer":
+			print("assign to int")
+			return assign[1].is_valid_integer()
+		return res
+			
 func show_asm(text_bytecode,line):
 	var res=""
 	var id=0
 	for text_instruction in text_bytecode:
 		res+="[color=red]"if id==line else ""
-		for t in text_instruction:
+		res+=text_instruction[0]+" "
+		for t in text_instruction[1]:
 			res+=t+" "
 		res+="\n"
 		res+="[/color]"if id==line else ""
@@ -202,13 +214,17 @@ func show_asm(text_bytecode,line):
 	$result.bbcode_enabled=true
 	$result.bbcode_text=res
 
+
 var text_bytecode:Array
 var currentLine=0
 var runtime
 var instruction:Array
 
+var source=""
+
 func _ready():
 	text_bytecode=$Compiler.compile($Source.text)
+	source=$Source.text
 	print("code size=",text_bytecode.size())
 	
 	show_asm(text_bytecode,0)
@@ -218,7 +234,18 @@ func _ready():
 	runtime.load_program(text_bytecode)
 	print("code size=",runtime.program.size())
 	
+func show_program(from, to):
+	$Source.text=""
+	$Source.bbcode_enabled=true
+	var res=""
+	for i in range(source.length()):
 
+		if i==from:
+			res+="[color=red]"
+		if i==to:
+			res+="[/color]"
+		res+=source[i]
+	$Source.bbcode_text=res
 
 
 
@@ -230,4 +257,9 @@ func _on_RunButton_pressed():
 	$"Display/RichTextLabel3".text=runtime.display
 	currentLine=runtime.ip
 	show_asm(text_bytecode,currentLine)
-
+	if runtime.ip<text_bytecode.size():
+		var token=text_bytecode[runtime.ip][2]
+		if token!=null:
+			show_program(token.begin_offset,token.end_offset)
+	if not runtime.ERRORS.empty():
+		OS.alert(runtime.ERRORS.pop_back())
